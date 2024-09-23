@@ -19,6 +19,15 @@ if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
     fi
 fi
 
+# 获取系统的发行版本
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    release=$ID
+else
+    echo "无法识别的系统，请手动检查操作系统类型。"
+    exit 1
+fi
+
 # 安装 socat
 case "${release}" in
 ubuntu | debian | armbian)
