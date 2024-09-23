@@ -5,6 +5,19 @@ green='\033[0;32m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
+#Add some basic function here
+function LOGD() {
+    echo -e "${yellow}[DEG] $* ${plain}"
+}
+
+function LOGE() {
+    echo -e "${red}[ERR] $* ${plain}"
+}
+
+function LOGI() {
+    echo -e "${green}[INF] $* ${plain}"
+}
+
 # check root
 [[ $EUID -ne 0 ]] && LOGE "ERROR: You must be root to run this script! \n" && exit 1
 
