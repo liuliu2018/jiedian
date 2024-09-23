@@ -35,6 +35,15 @@ fi
 
 echo "The OS release is: $release"
 
+LOGI "install acme..."
+curl https://get.acme.sh | sh
+if [ $? -ne 0 ]; then
+    LOGE "install acme failed"
+    return 1
+else
+    LOGI "install acme succeed"
+fi
+
 # check for acme.sh first
 if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
     echo "acme.sh could not be found. we will install it"
