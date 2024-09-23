@@ -1,0 +1,114 @@
+#!/bin/bash
+
+LOGE() { echo -e "[ERROR] $1"; }
+LOGI() { echo -e "[INFO] $1"; }
+
+# 安装 acme.sh 的函数
+install_acme() {
+    curl https://get.acme.sh | sh
+    source ~/.bashrc
+}
+
+# 检查是否安装了 acme.sh
+if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
+    echo "acme.sh 未找到，正在安装..."
+    install_acme
+    if [ $? -ne 0 ]; then
+        LOGE "acme 安装失败，请检查日志"
+        exit 1
+    fi
+fi
+
+# 安装 socat
+case "${release}" in
+ubuntu | debian | armbian)
+    apt update && apt install socat -y
+    ;;
+centos | almalinux | rocky | oracle)
+    yum -y update && yum -y install socat
+    ;;
+fedora)
+    dnf -y update && dnf -y install socat
+    ;;
+arch | manjaro | parch)
+    pacman -Sy --noconfirm socat
+    ;;
+*)
+    echo -e "不支持的操作系统，请手动安装必要的依赖程序\n"
+    exit 1
+    ;;
+esac
+if [ $? -ne 0 ]; then
+    LOGE "安装 socat 失败，请检查日志"
+    exit 1
+else
+    LOGI "socat 安装成功..."
+fi
+
+# 获取域名
+read -p "请输入域名: " domain
+LOGI "你的域名是: ${domain}，正在检查..."
+
+# 检查证书是否已存在
+currentCert=$(~/.acme.sh/acme.sh --list | tail -1 | awk '{print $1}')
+if [ "${currentCert}" == "${domain}" ]; then
+    certInfo=$(~/.acme.sh/acme.sh --list)
+    LOGE "系统已存在此域名的证书，无法重复签发，当前证书信息如下:"
+    LOGI "$certInfo"
+    exit 1
+else
+    LOGI "域名可以签发证书..."
+fi
+
+# 创建证书目录
+certPath="/root/cert/${domain}"
+if [ ! -d "$certPath" ]; then
+    mkdir -p "$certPath"
+else
+    rm -rf "$certPath"
+    mkdir -p "$certPath"
+fi
+
+# 获取端口号
+read -p "请输入端口号 (默认为 80): " WebPort
+if [[ ${WebPort} -gt 65535 || ${WebPort} -lt 1 ]]; then
+    LOGE "输入的端口无效，使用默认的 80 端口"
+    WebPort=80
+fi
+LOGI "将使用端口 ${WebPort} 来签发证书，请确保此端口已打开..."
+
+# 设置 Let's Encrypt 作为默认 CA 并签发证书
+~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport ${WebPort}
+if [ $? -ne 0 ]; then
+    LOGE "签发证书失败，请检查日志"
+    rm -rf ~/.acme.sh/${domain}
+    exit 1
+else
+    LOGI "证书签发成功，正在安装..."
+fi
+
+# 安装证书
+~/.acme.sh/acme.sh --installcert -d ${domain} \
+    --key-file /root/cert/${domain}/privkey.pem \
+    --fullchain-file /root/cert/${domain}/fullchain.pem
+if [ $? -ne 0 ]; then
+    LOGE "安装证书失败，退出"
+    rm -rf ~/.acme.sh/${domain}
+    exit 1
+else
+    LOGI "证书安装成功，启用自动更新..."
+fi
+
+# 启用自动更新
+~/.acme.sh/acme.sh --upgrade --auto-upgrade
+if [ $? -ne 0 ]; then
+    LOGE "自动更新启用失败，证书信息如下:"
+    ls -lah /root/cert/*
+    chmod 755 $certPath/*
+    exit 1
+else
+    LOGI "自动更新启用成功，证书信息如下:"
+    ls -lah /root/cert/*
+    chmod 755 $certPath/*
+fi
