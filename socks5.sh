@@ -43,6 +43,7 @@ if [ $? -eq 0 ]; then
     echo "外网IP: $IP"
     echo "端口: $PORT"
     echo "用户名: $USERNAME"
+    echo "用户名: $PASSWORD"
     echo "日志文件: gost.log"
 else
     echo "启动代理失败，请检查日志文件: gost.log"
