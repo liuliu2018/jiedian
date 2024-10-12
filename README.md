@@ -1,6 +1,6 @@
-<img src="/logo.jpg" width=30% >
+<img src="/logo.jpg" width=20% >
 
-# 雀实快｜网站发布页面
+# 海杉机场｜网站发布页面
 # 请按Ctrl+D将此页面添加为书签，以免丢失。
 
 # 官网：[https://aa.fuzhoutk.sbs:7001](https://aa.fuzhoutk.sbs:7001)
