@@ -1,4 +1,4 @@
-![这是图片](/logo.jpg#width = 30%)
+<img src="/logo.jpg" width=30% >
 
 # 雀实快｜网站发布页面
 # 请按Ctrl+D将此页面添加为书签，以免丢失。
