@@ -125,7 +125,7 @@ fi
 # install cert
 ~/.acme.sh/acme.sh --installcert -d ${domain} \
     --key-file /root/cert/${domain}/privkey.pem \
-    --fullchain-file /root/cert/${domain}/fullchain.pem
+    --fullchain-file /root/cert/${domain}/fullchain.pem --force
 
 if [ $? -ne 0 ]; then
     LOGE "install certs failed,exit"
