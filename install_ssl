@@ -105,8 +105,8 @@ else
 fi
 
 # get needed port here
-local WebPort=80
-read -p "please choose which port do you use,default will be 80 port:" WebPort
+local WebPort=8066
+read -p "please choose which port do you use,default will be 8066 port:" WebPort
 if [[ ${WebPort} -gt 65535 || ${WebPort} -lt 1 ]]; then
     LOGE "your input ${WebPort} is invalid,will use default port"
 fi
