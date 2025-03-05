@@ -1,0 +1,121 @@
+#!/bin/bash
+
+red='\033[0;31m'
+green='\033[0;32m'
+yellow='\033[0;33m'
+plain='\033[0m'
+
+# 日志函数
+function LOGD() { echo -e "${yellow}[DEG] $* ${plain}"; }
+function LOGE() { echo -e "${red}[ERR] $* ${plain}"; }
+function LOGI() { echo -e "${green}[INF] $* ${plain}"; }
+
+# 检查是否为 root
+[[ $EUID -ne 0 ]] && LOGE "ERROR: You must be root to run this script!" && exit 1
+
+# 检查系统发行版
+if [[ -f /etc/os-release ]]; then
+    source /etc/os-release
+    release=$ID
+else
+    LOGE "无法确定系统类型，请检查！"
+    exit 1
+fi
+
+LOGI "系统发行版: $release"
+
+# 安装 acme.sh
+LOGI "安装 acme.sh..."
+curl -s https://get.acme.sh | sh
+if [ $? -ne 0 ]; then
+    LOGE "安装 acme.sh 失败"
+    exit 1
+fi
+
+# 确保 acme.sh 可用
+if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
+    LOGE "acme.sh 安装失败，未找到可执行文件"
+    exit 1
+fi
+
+# 安装 socat
+LOGI "安装 socat..."
+case "$release" in
+ubuntu | debian | armbian)
+    apt update && apt install -y socat ;;
+centos | almalinux | rocky | oracle)
+    yum -y install socat ;;
+fedora)
+    dnf -y install socat ;;
+arch | manjaro)
+    pacman -Sy --noconfirm socat ;;
+*)
+    LOGE "不支持的操作系统，请手动安装 socat"
+    exit 1 ;;
+esac
+
+if [ $? -ne 0 ]; then
+    LOGE "安装 socat 失败"
+    exit 1
+fi
+
+LOGI "socat 安装成功"
+
+# 获取用户输入的域名
+read -p "请输入你的域名: " domain
+LOGD "你的域名是: ${domain}，正在检查..."
+
+# 检查是否已有该域名的证书
+if ~/.acme.sh/acme.sh --list | grep -q "$domain"; then
+    LOGE "已存在该域名的证书，请勿重复申请"
+    ~/.acme.sh/acme.sh --list
+    exit 1
+fi
+
+# 创建证书存放目录
+certPath="/root/cert/${domain}"
+mkdir -p "$certPath"
+
+# 选择 HTTP 端口
+read -p "请输入要使用的端口（默认 8066）: " WebPort
+WebPort=${WebPort:-8066}
+
+if [[ "$WebPort" -lt 1 || "$WebPort" -gt 65535 ]]; then
+    LOGE "无效端口: ${WebPort}，将使用默认端口 8066"
+    WebPort=8066
+fi
+
+LOGI "使用端口 ${WebPort} 进行证书申请，请确保该端口未被占用"
+
+# 申请证书
+~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+~/.acme.sh/acme.sh --issue -d "$domain" --standalone --httpport "$WebPort"
+if [ $? -ne 0 ]; then
+    LOGE "申请证书失败，请检查日志"
+    exit 1
+fi
+
+LOGI "证书申请成功，开始安装..."
+
+# 安装证书
+~/.acme.sh/acme.sh --installcert -d "$domain" \
+    --key-file "$certPath/privkey.pem" \
+    --fullchain-file "$certPath/fullchain.pem"
+
+if [ $? -ne 0 ]; then
+    LOGE "安装证书失败"
+    exit 1
+fi
+
+LOGI "证书安装成功，启用自动续期"
+
+# 启用自动续期
+~/.acme.sh/acme.sh --upgrade --auto-upgrade
+if [ $? -ne 0 ]; then
+    LOGE "自动续期配置失败"
+    exit 1
+fi
+
+LOGI "自动续期配置完成，证书存放在: $certPath"
+ls -lah "$certPath"
+chmod 644 "$certPath"/*
