@@ -1,0 +1,353 @@
+#!/bin/bash
+
+red='\033[0;31m'
+green='\033[0;32m'
+yellow='\033[0;33m'
+plain='\033[0m'
+
+#Add some basic function here
+function LOGD() {
+    echo -e "${yellow}[DEG] $* ${plain}"
+}
+
+function LOGE() {
+    echo -e "${red}[ERR] $* ${plain}"
+}
+
+function LOGI() {
+    echo -e "${green}[INF] $* ${plain}"
+}
+
+# check root
+[[ $EUID -ne 0 ]] && LOGE "ERROR: You must be root to run this script! \n" && exit 1
+
+# Check OS and set release variable
+if [[ -f /etc/os-release ]]; then
+    source /etc/os-release
+    release=$ID
+elif [[ -f /usr/lib/os-release ]]; then
+    source /usr/lib/os-release
+    release=$ID
+else
+    echo "Failed to check the system OS, please contact the author!" >&2
+    exit 1
+fi
+
+echo "The OS release is: $release"
+
+# ============ 修改点1：新增install_cron函数 ============
+# 功能：根据不同的操作系统安装crontab
+# =====================================================
+function install_cron() {
+    LOGI "Installing crontab for $release..."
+    
+    case "${release}" in
+        ubuntu|debian|armbian)
+            apt update && apt install cron -y
+            if [ $? -eq 0 ]; then
+                systemctl enable --now cron
+                LOGI "cron installed and started successfully"
+            else
+                LOGE "Failed to install cron"
+                return 1
+            fi
+            ;;
+        centos|almalinux|rocky|oracle|rhel)
+            if command -v dnf &>/dev/null; then
+                dnf install cronie -y
+            else
+                yum install cronie -y
+            fi
+            if [ $? -eq 0 ]; then
+                systemctl enable --now crond
+                LOGI "cronie installed and started successfully"
+            else
+                LOGE "Failed to install cronie"
+                return 1
+            fi
+            ;;
+        fedora)
+            dnf install cronie -y
+            if [ $? -eq 0 ]; then
+                systemctl enable --now crond
+                LOGI "cronie installed and started successfully"
+            else
+                LOGE "Failed to install cronie"
+                return 1
+            fi
+            ;;
+        arch|manjaro|parch)
+            pacman -Sy --noconfirm cronie
+            if [ $? -eq 0 ]; then
+                systemctl enable --now crond
+                LOGI "cronie installed and started successfully"
+            else
+                LOGE "Failed to install cronie"
+                return 1
+            fi
+            ;;
+        opensuse*|suse)
+            zypper install -y cron
+            if [ $? -eq 0 ]; then
+                systemctl enable --now cron
+                LOGI "cron installed and started successfully"
+            else
+                LOGE "Failed to install cron"
+                return 1
+            fi
+            ;;
+        alpine)
+            apk add dcron
+            if [ $? -eq 0 ]; then
+                rc-update add dcron
+                rc-service dcron start
+                LOGI "dcron installed and started successfully"
+            else
+                LOGE "Failed to install dcron"
+                return 1
+            fi
+            ;;
+        freebsd)
+            pkg install -y cronie
+            if [ $? -eq 0 ]; then
+                sysrc cron_enable=YES
+                service cron start
+                LOGI "cronie installed and started successfully"
+            else
+                LOGE "Failed to install cronie"
+                return 1
+            fi
+            ;;
+        *)
+            # 对于未知系统，尝试多种包名
+            LOGE "Unknown system, trying common cron packages..."
+            if command -v apt &>/dev/null; then
+                apt update && apt install cron -y
+            elif command -v dnf &>/dev/null; then
+                dnf install cronie -y
+            elif command -v yum &>/dev/null; then
+                yum install cronie -y
+            elif command -v pacman &>/dev/null; then
+                pacman -Sy --noconfirm cronie
+            elif command -v zypper &>/dev/null; then
+                zypper install -y cron
+            else
+                LOGE "Cannot install crontab automatically"
+                LOGE "Please install crontab manually and run this script again"
+                return 1
+            fi
+            ;;
+    esac
+    
+    # 验证crontab是否安装成功
+    if command -v crontab &>/dev/null; then
+        LOGI "✓ crontab installed successfully"
+        return 0
+    else
+        LOGE "✗ crontab installation failed"
+        return 1
+    fi
+}
+# ============ 修改点1结束 ============
+
+LOGI "install acme..."
+# ============ 修改点2：安装acme前先安装cron ============
+# 功能：确保crontab已安装，避免acme.sh安装时报错
+# =====================================================
+# 检查crontab是否已安装
+if ! command -v crontab &>/dev/null; then
+    LOGI "crontab not found, installing..."
+    install_cron
+    if [ $? -ne 0 ]; then
+        LOGE "Failed to install crontab"
+        LOGE "You can either:"
+        LOGE "1. Install crontab manually and run this script again"
+        LOGE "2. Add '--force' to acme.sh install command (not recommended, auto-renew will not work)"
+        read -p "Do you want to continue with --force? (y/N): " force_install
+        if [[ "${force_install,,}" == "y" || "${force_install,,}" == "yes" ]]; then
+            LOGI "Installing acme.sh with --force..."
+            curl https://get.acme.sh | sh -s -- --force
+        else
+            LOGE "Installation cancelled"
+            exit 1
+        fi
+    else
+        # cron安装成功，正常安装acme.sh
+        curl https://get.acme.sh | sh
+    fi
+else
+    LOGI "crontab already installed, proceeding..."
+    curl https://get.acme.sh | sh
+fi
+# ============ 修改点2结束 ============
+
+if [ $? -ne 0 ]; then
+    LOGE "install acme failed"
+    exit 1
+else
+    LOGI "install acme succeed"
+fi
+
+# check for acme.sh first
+if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
+    echo "acme.sh could not be found. we will install it"
+    # ============ 修改点3：修改install_acme调用部分 ============
+    # 注意：原脚本中install_acme函数未定义，这里修正为直接调用acme.sh安装
+    # =====================================================
+    LOGI "Installing acme.sh..."
+    if ! command -v crontab &>/dev/null; then
+        curl https://get.acme.sh | sh -s -- --force
+    else
+        curl https://get.acme.sh | sh
+    fi
+    if [ $? -ne 0 ]; then
+        LOGE "install acme failed, please check logs"
+        exit 1
+    fi
+fi
+
+# install socat second
+# ============ 修改点4：优化socat安装逻辑 ============
+# 功能：安装socat前先更新包管理器，添加错误处理
+# =====================================================
+case "${release}" in
+ubuntu | debian | armbian)
+    apt update && apt install socat -y
+    ;;
+centos | almalinux | rocky | oracle | rhel)
+    if command -v dnf &>/dev/null; then
+        dnf -y install socat
+    else
+        yum -y install socat
+    fi
+    ;;
+fedora)
+    dnf -y install socat
+    ;;
+arch | manjaro | parch)
+    pacman -Sy --noconfirm socat
+    ;;
+opensuse*|suse)
+    zypper install -y socat
+    ;;
+alpine)
+    apk add socat
+    ;;
+*)
+    echo -e "${red}Unsupported operating system. Please install socat manually.${plain}\n"
+    exit 1
+    ;;
+esac
+
+if [ $? -ne 0 ]; then
+    LOGE "install socat failed, please check logs"
+    exit 1
+else
+    LOGI "install socat succeed..."
+fi
+
+# get the domain here,and we need verify it
+domain=""
+read -p "Please enter your domain name: " domain
+LOGD "your domain is: ${domain}, check it..."
+
+# ============ 修改点5：修复证书存在性检查逻辑 ============
+# 功能：避免空值比较错误，更安全地检查证书是否存在
+# =====================================================
+# here we need to judge whether there exists cert already
+currentCert=$(~/.acme.sh/acme.sh --list 2>/dev/null | tail -1 | awk '{print $1}')
+
+if [ ! -z "${currentCert}" ] && [ "${currentCert}" == "${domain}" ]; then
+    certInfo=$(~/.acme.sh/acme.sh --list)
+    LOGE "System already has certs for ${domain}, cannot issue again. Current certs details:"
+    LOGI "$certInfo"
+    exit 1
+else
+    LOGI "Your domain is ready for issuing cert now..."
+fi
+
+# create a directory for install cert
+certPath="/root/cert/${domain}"
+if [ ! -d "$certPath" ]; then
+    mkdir -p "$certPath"
+else
+    rm -rf "$certPath"
+    mkdir -p "$certPath"
+fi
+
+# get needed port here
+WebPort=80
+read -p "Please choose which port to use (default: 80): " WebPort
+if [[ -z "${WebPort}" ]]; then
+    WebPort=80
+elif [[ ${WebPort} -gt 65535 || ${WebPort} -lt 1 ]]; then
+    LOGE "Your input ${WebPort} is invalid, will use default port 80"
+    WebPort=80
+fi
+LOGI "Will use port: ${WebPort} to issue certs, please make sure this port is open..."
+
+# set default CA and issue cert
+~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport ${WebPort}
+
+if [ $? -ne 0 ]; then
+    LOGE "Issue certs failed, please check logs"
+    rm -rf ~/.acme.sh/${domain}
+    exit 1
+else
+    LOGI "Issue certs succeed, installing certs..."
+fi
+
+# install cert
+~/.acme.sh/acme.sh --installcert -d ${domain} \
+    --key-file /root/cert/${domain}/privkey.pem \
+    --fullchain-file /root/cert/${domain}/fullchain.pem
+
+if [ $? -ne 0 ]; then
+    LOGE "Install certs failed, exit"
+    rm -rf ~/.acme.sh/${domain}
+    exit 1
+else
+    LOGI "Install certs succeed, enabling auto renew..."
+fi
+
+# ============ 修改点6：添加cron任务验证 ============
+# 功能：安装完成后验证cron任务是否成功创建
+# =====================================================
+~/.acme.sh/acme.sh --upgrade --auto-upgrade
+if [ $? -ne 0 ]; then
+    LOGE "Auto renew setup failed"
+else
+    LOGI "Auto renew setup succeed"
+fi
+
+# 验证cron任务
+if command -v crontab &>/dev/null; then
+    if crontab -l 2>/dev/null | grep -q "acme.sh"; then
+        LOGI "✓ Cron job for auto renewal has been set up successfully"
+    else
+        LOGE "✗ Cron job for auto renewal was not set up"
+        LOGE "Please check if crontab is working properly"
+    fi
+else
+    LOGE "✗ crontab not found, auto renewal will not work"
+    LOGE "Please install crontab and run: ~/.acme.sh/acme.sh --install-cronjob"
+fi
+
+# ============ 修改点7：优化证书文件权限设置 ============
+# 功能：确保证书文件权限设置正确，并显示证书信息
+# =====================================================
+if [ -d "/root/cert/${domain}" ]; then
+    chmod 755 "/root/cert/${domain}"
+    chmod 644 "/root/cert/${domain}/privkey.pem" "/root/cert/${domain}/fullchain.pem" 2>/dev/null
+    LOGI "Certificate details:"
+    ls -lah "/root/cert/${domain}/"
+else
+    LOGE "Certificate directory not found"
+fi
+
+LOGI "=== ACME certificate installation completed ==="
+LOGI "Domain: ${domain}"
+LOGI "Certificate path: /root/cert/${domain}/"
+LOGI "Private key: /root/cert/${domain}/privkey.pem"
+LOGI "Fullchain: /root/cert/${domain}/fullchain.pem"
