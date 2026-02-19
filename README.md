@@ -5,7 +5,7 @@
 # 海杉网络｜网站发布页面
 # 请按Ctrl+D将此页面添加为书签，以免丢失。
 
-# 官网：[https://liuliu.sbs](https://liuliu.sbs)
+# 官网：[https://66tk.top](https://66tk.top)
 
 # 如果无法打开官网，请检查本地代理是否关闭，更换浏览器或使用手机的4G网络尝试。
 
