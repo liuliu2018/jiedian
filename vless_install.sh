@@ -7,6 +7,24 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# 提示用户输入端口
+echo "=========================================="
+echo "          Alpine Xray 极简安装            "
+echo "=========================================="
+while true; do
+    printf "请输入想要监听的端口 [默认: 443]: "
+    read -r PORT_INPUT </dev/tty || PORT_INPUT=""
+    PORT=${PORT_INPUT:-443}
+
+    # 验证输入是否为 1-65535 的合法数字
+    if echo "${PORT}" | grep -Eq '^[0-9]+$' && [ "${PORT}" -ge 1 ] && [ "${PORT}" -le 65535 ]; then
+        echo ">>> 已选择端口: ${PORT}"
+        break
+    else
+        echo "错误：端口号必须是 1 到 65535 之间的数字，请重新输入！"
+    fi
+done
+
 echo ">>> 正在更新 Alpine 系统依赖..."
 apk update
 apk add curl unzip openssl ca-certificates openrc bash
@@ -46,7 +64,6 @@ PRIVATE_KEY=$(echo "${KEYS}" | grep -i "Private key:" | awk '{print $3}' | tr -d
 PUBLIC_KEY=$(echo "${KEYS}" | grep -i "Public key:" | awk '{print $3}' | tr -d '\r\n')
 SHORT_ID=$(openssl rand -hex 8)
 SNI="gateway.icloud.com"
-PORT=443
 
 # 获取公网 IP
 SERVER_IP=$(curl -s4m 5 https://api.ipify.org || curl -s6m 5 https://api64.ipify.org || echo "YOUR_SERVER_IP")
@@ -124,14 +141,14 @@ rc-service xray restart
 rm -rf /var/cache/apk/*
 
 # 生成节点导入链接
-VLESS_LINK="vless://${UUID}@${SERVER_IP}:${PORT}?security=reality&encryption=none&pbk=${PUBLIC_KEY}&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${SNI}&sid=${SHORT_ID}#AU-Reality"
+VLESS_LINK="vless://${UUID}@${SERVER_IP}:${PORT}?security=reality&encryption=none&pbk=${PUBLIC_KEY}&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${SNI}&sid=${SHORT_ID}#AU-Reality-${PORT}"
 
 echo ""
 echo "=========================================="
 echo "      Alpine Linux Xray 安装完成          "
 echo "=========================================="
 echo "IP 地址:      ${SERVER_IP}"
-echo "端口:         ${PORT}"
+echo "监听端口:     ${PORT}"
 echo "UUID:         ${UUID}"
 echo "Flow:         xtls-rprx-vision"
 echo "SNI:          ${SNI}"
