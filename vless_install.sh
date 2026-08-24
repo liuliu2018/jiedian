@@ -103,6 +103,7 @@ EOF
 
 # 配置 Systemd 守护进程
 echo ">>> 正在配置 Systemd 服务..."
+mkdir -p /etc/systemd/system
 cat << EOF > /etc/systemd/system/xray.service
 [Unit]
 Description=Xray Service
