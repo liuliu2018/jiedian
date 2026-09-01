@@ -42,44 +42,33 @@ case "${ARCH}" in
     *) echo "不支持的架构: ${ARCH}"; exit 1 ;;
 esac
 
-echo ">>> 正在获取 Xray-core 最新版本..."
-# 获取最新版本 tag，若失败则使用硬编码保底版本
-LATEST_TAG=$(curl -sL https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-if [ -z "${LATEST_TAG}" ]; then
-    LATEST_TAG="v24.11.30"
-    echo ">>> API 请求受限，使用保底版本: ${LATEST_TAG}"
-else
-    echo ">>> 检测到最新版本: ${LATEST_TAG}"
-fi
+# 使用 GitHub 官方最新版直连地址（避免 API 解析错误）
+DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
 
-DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/${LATEST_TAG}/Xray-linux-${XRAY_ARCH}.zip"
-
-# 创建临时目录下载
 TMP_DIR=$(mktemp -d)
-echo ">>> 正在下载 Xray-core (${DOWNLOAD_URL})..."
+echo ">>> 正在下载 Xray-core 最新版..."
 
-# 使用 -fL 参数：如果返回 404 等错误 code，curl 会直接失败而不是下载错误网页
+# 使用 -fL 跟随重定向，下载失败时报错
 if ! curl -fsSL -o "${TMP_DIR}/xray.zip" "${DOWNLOAD_URL}"; then
-    echo "错误：下载 Xray 失败！尝试使用备用镜像下载..."
+    echo "警告：直连下载失败，尝试使用镜像源下载..."
     MIRROR_URL="https://ghproxy.net/${DOWNLOAD_URL}"
     curl -fsSL -o "${TMP_DIR}/xray.zip" "${MIRROR_URL}"
 fi
 
-# 验证文件格式是否为 Zip
+# 校验 zip 包合法性
 if ! unzip -tq "${TMP_DIR}/xray.zip" >/dev/null 2>&1; then
     echo "错误：下载的文件损坏或不是合法的 zip 压缩包！"
     rm -rf "${TMP_DIR}"
     exit 1
 fi
 
-# 仅解压 xray 单二进制文件
 echo ">>> 提取二进制文件..."
 mkdir -p /usr/local/bin /etc/xray
 unzip -o "${TMP_DIR}/xray.zip" xray -d /usr/local/bin/
 chmod +x /usr/local/bin/xray
 rm -rf "${TMP_DIR}"
 
-# 生成 Reality 参数（兼容新旧 Xray 的 x25519 格式）
+# 生成 Reality 参数（兼容新旧 Xray x25519 密钥名称格式）
 UUID=$(/usr/local/bin/xray uuid)
 KEYS=$(/usr/local/bin/xray x25519)
 PRIVATE_KEY=$(echo "${KEYS}" | grep -Ei "Private" | head -n 1 | sed -E 's/.*:[[:space:]]*//' | tr -d '\r\n ')
@@ -87,10 +76,8 @@ PUBLIC_KEY=$(echo "${KEYS}" | grep -Ei "Public|Password" | head -n 1 | sed -E 's
 SHORT_ID=$(openssl rand -hex 8)
 SNI="gateway.icloud.com"
 
-# 检查密钥是否提取成功
 if [ -z "${PRIVATE_KEY}" ] || [ -z "${PUBLIC_KEY}" ]; then
-    echo "错误：未能自动识别密钥格式，输出调试信息："
-    echo "${KEYS}"
+    echo "错误：未能成功生成并识别 Xray 密钥！"
     exit 1
 fi
 
@@ -142,7 +129,7 @@ cat << EOF > /etc/xray/config.json
 }
 EOF
 
-# 配置 Alpine OpenRC 守护服务
+# 配置 OpenRC 服务
 echo ">>> 配置 OpenRC 服务..."
 cat << 'EOF' > /etc/init.d/xray
 #!/sbin/openrc-run
@@ -162,11 +149,11 @@ EOF
 
 chmod +x /etc/init.d/xray
 
-# 启动并加入开机自启
+# 启动服务并加入自启
 rc-update add xray default 2>/dev/null || true
 rc-service xray restart
 
-# 清理 apk 缓存节省 800M 存储
+# 清理 apk 缓存
 rm -rf /var/cache/apk/*
 
 # 生成节点导入链接
