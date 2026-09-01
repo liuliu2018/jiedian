@@ -34,23 +34,26 @@ echo ">>> 正在更新 Alpine 系统依赖..."
 apk update
 apk add curl unzip openssl ca-certificates openrc bash
 
-# 架构判断
-ARCH=$(uname -m)
-case "${ARCH}" in
+# 架构判断与参数显示
+RAW_ARCH=$(uname -m)
+case "${RAW_ARCH}" in
     x86_64|amd64) XRAY_ARCH="64" ;;
     aarch64|arm64) XRAY_ARCH="arm64-v8a" ;;
-    *) echo "不支持的架构: ${ARCH}"; exit 1 ;;
+    *) echo "不支持的 CPU 架构: ${RAW_ARCH}"; exit 1 ;;
 esac
 
-# 使用 GitHub 官方最新版直连地址（避免 API 解析错误）
+echo ">>> 系统架构: ${RAW_ARCH} -> XRAY_ARCH 匹配参数: [ ${XRAY_ARCH} ]"
+
+# 使用 GitHub 最新版 Release 的固定重定向下载链接
 DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
+echo ">>> 最新版下载地址: ${DOWNLOAD_URL}"
 
 TMP_DIR=$(mktemp -d)
 echo ">>> 正在下载 Xray-core 最新版..."
 
-# 使用 -fL 跟随重定向，下载失败时报错
+# -L 自动跟随 GitHub 的重定向，-f 在 404/500 时直接报错不产生垃圾文件
 if ! curl -fsSL -o "${TMP_DIR}/xray.zip" "${DOWNLOAD_URL}"; then
-    echo "警告：直连下载失败，尝试使用镜像源下载..."
+    echo "警告：GitHub 直连下载失败，尝试使用加速镜像下载..."
     MIRROR_URL="https://ghproxy.net/${DOWNLOAD_URL}"
     curl -fsSL -o "${TMP_DIR}/xray.zip" "${MIRROR_URL}"
 fi
@@ -129,7 +132,7 @@ cat << EOF > /etc/xray/config.json
 }
 EOF
 
-# 配置 OpenRC 服务
+# 配置 Alpine OpenRC 守护服务
 echo ">>> 配置 OpenRC 服务..."
 cat << 'EOF' > /etc/init.d/xray
 #!/sbin/openrc-run
@@ -149,7 +152,7 @@ EOF
 
 chmod +x /etc/init.d/xray
 
-# 启动服务并加入自启
+# 启动并加入开机自启
 rc-update add xray default 2>/dev/null || true
 rc-service xray restart
 
